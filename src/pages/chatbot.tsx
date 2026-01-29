@@ -124,6 +124,8 @@ export default function ChatBot() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [questionInput, setQuestionInput] = useState<string>("");
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
@@ -222,9 +224,25 @@ export default function ChatBot() {
       messages: [],
       createdAt: new Date(),
     };
-    setSessions([newSession, ...sessions]);
+    setSessions((prev) => [newSession, ...prev]);
     setActiveSessionId(newSession.id);
   };
+
+  // Ensure a session exists when the user authenticates so the input is enabled
+  useEffect(() => {
+    if (isAuthenticated) {
+      // If there's already an active session id, keep it
+      if (activeSessionId) return;
+
+      if (sessions.length > 0) {
+        // Activate the most recent session
+        setActiveSessionId(sessions[0].id);
+      } else {
+        // Create one automatically
+        createNewSession();
+      }
+    }
+  }, [isAuthenticated, sessions, activeSessionId]);
 
   const deleteSession = (sessionId: string) => {
     setSessions(sessions.filter((s) => s.id !== sessionId));
@@ -243,12 +261,25 @@ export default function ChatBot() {
   };
 
   const sendMessage = async () => {
-    if (isProcessing || !activeSession) return;
+    console.log('sendMessage called', { isProcessing, activeSessionId, sessionsLength: sessions.length });
+    if (isProcessing) return;
 
-    const inputElement = document.getElementById("question") as HTMLInputElement;
-    if (!inputElement) return;
+    // If there's no active session, create one synchronously and use it
+    let currentSession = activeSession;
+    if (!currentSession) {
+      const newSession: Session = {
+        id: generateId(),
+        title: 'New Chat',
+        messages: [],
+        createdAt: new Date(),
+      };
+      setSessions((prev) => [newSession, ...prev]);
+      setActiveSessionId(newSession.id);
+      currentSession = newSession;
+      console.log('Created new session on send:', newSession.id);
+    }
 
-    const question = inputElement.value.trim();
+    const question = questionInput.trim();
     if (!question) return;
 
     // Create user message
@@ -260,22 +291,16 @@ export default function ChatBot() {
       type: "default",
     };
 
-    // Update session with user message
-    setSessions(
-      sessions.map((s) =>
-        s.id === activeSessionId
-          ? { ...s, messages: [...s.messages, userMessage] }
-          : s
-      )
-    );
+    // Update session with user message (use functional update to avoid stale state)
+    setSessions((prev) => prev.map((s) => (s.id === (currentSession as Session).id ? { ...s, messages: [...s.messages, userMessage] } : s)));
 
     // Update title if it's the first message
-    if (activeSession.messages.length === 0) {
+    if ((currentSession as Session).messages.length === 0) {
       const title = question.substring(0, 50) + (question.length > 50 ? "..." : "");
-      updateSessionTitle(activeSessionId!, title);
+      updateSessionTitle((currentSession as Session).id, title);
     }
 
-    inputElement.value = "";
+    setQuestionInput("");
     setIsProcessing(true);
 
     try {
@@ -283,12 +308,9 @@ export default function ChatBot() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: question,
-          history: activeSession.messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
+            message: question,
+            history: (currentSession as Session).messages.map((m) => ({ role: m.role, content: m.content })),
+          }),
       });
 
       if (!response.ok) {
@@ -333,16 +355,13 @@ export default function ChatBot() {
       );
     } finally {
       setIsProcessing(false);
-      inputElement.focus();
+      inputRef.current?.focus();
     }
   };
 
   const askQuickQuestion = (question: string) => {
-    const inputElement = document.getElementById("question") as HTMLInputElement;
-    if (inputElement) {
-      inputElement.value = question;
-      setTimeout(() => sendMessage(), 100);
-    }
+    setQuestionInput(question);
+    setTimeout(() => sendMessage(), 100);
   };
 
   const handleCopy = (messageId: string, content: string) => {
@@ -450,14 +469,28 @@ export default function ChatBot() {
       <div className="flex-1 flex flex-col">
         {/* Header */}
         <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between shadow-sm">
-          <button
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
-          <h1 className="text-2xl font-bold text-gray-800">Fleet AI Assistant</h1>
-          <div className="w-10"></div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+            <div>
+              <h1 className="text-lg font-semibold text-gray-800 flex items-center gap-2">🚗 Fleet AI Assistant</h1>
+              <p className="text-xs text-gray-500">Business-ready insights — ask high-level questions</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button onClick={() => createNewSession()} className="text-sm px-3 py-1 bg-gray-100 rounded hover:bg-gray-200">New Conversation</button>
+            <button
+              onClick={() => navigate('/fleet-dashboard')}
+              className="text-sm px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded hover:shadow"
+            >
+              Dashboard
+            </button>
+          </div>
         </div>
 
         {/* Chat Area */}
@@ -476,47 +509,14 @@ export default function ChatBot() {
               </p>
 
               <div className="w-full max-w-md space-y-2">
-                <p className="text-sm font-semibold text-gray-700 mb-3">
-                  Quick Questions:
-                </p>
-                <button
-                  onClick={() =>
-                    askQuickQuestion("How many vehicles are there in total?")
-                  }
-                  className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm"
-                >
-                  📊 Total Vehicles
-                </button>
-                <button
-                  onClick={() =>
-                    askQuickQuestion("How many allocated vehicles?")
-                  }
-                  className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm"
-                >
-                  🚐 Allocated Count
-                </button>
-                <button
-                  onClick={() =>
-                    askQuickQuestion("Show me spare vehicles")
-                  }
-                  className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm"
-                >
-                  ⭐ Spare Vehicles
-                </button>
-                <button
-                  onClick={() => askQuickQuestion("List all drivers")}
-                  className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm"
-                >
-                  👥 All Drivers
-                </button>
-                <button
-                  onClick={() =>
-                    askQuickQuestion("What vehicles need maintenance?")
-                  }
-                  className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm"
-                >
-                  🔧 Maintenance Due
-                </button>
+                <p className="text-sm font-semibold text-gray-700 mb-3">Quick Questions:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button onClick={() => askQuickQuestion("How many vehicles are there in total?")} className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm">📊 Total Vehicles</button>
+                  <button onClick={() => askQuickQuestion("How many allocated vehicles?")} className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm">🚐 Allocated Count</button>
+                  <button onClick={() => askQuickQuestion("Show me spare vehicles")} className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm">⭐ Spare Vehicles</button>
+                  <button onClick={() => askQuickQuestion("List all drivers")} className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm">👥 All Drivers</button>
+                  <button onClick={() => askQuickQuestion("What vehicles need maintenance?")} className="w-full text-left bg-white border border-gray-200 p-3 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-sm">🔧 Maintenance Due</button>
+                </div>
               </div>
             </div>
           ) : (
@@ -530,73 +530,42 @@ export default function ChatBot() {
               const IconComponent = styles?.icon;
 
               return (
-                <div
-                  key={message.id}
-                  className={`flex ${
-                    message.role === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  <div
-                    className={`group relative max-w-[85%] md:max-w-[75%] rounded-2xl shadow-sm overflow-hidden ${
-                      message.role === "user"
-                        ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-3"
-                        : `${styles?.bg} border ${styles?.border} text-gray-800`
-                    }`}
-                  >
-                    {/* Accent bar for bot messages */}
+                <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                  {message.role === "assistant" && (
+                    <div className="flex-shrink-0 mr-3 mt-1">
+                      <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold">AI</div>
+                    </div>
+                  )}
+
+                  <div className={`group relative max-w-[85%] md:max-w-[75%] rounded-2xl shadow-sm overflow-hidden ${message.role === "user" ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-3" : `${styles?.bg} border ${styles?.border} text-gray-800`}`}>
                     {message.role === "assistant" && (
-                      <div
-                        className={`absolute left-0 top-0 bottom-0 w-1 ${styles?.accentBar}`}
-                      />
+                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${styles?.accentBar}`} />
                     )}
 
-                    <div
-                      className={message.role === "assistant" ? "pl-4 pr-4 py-3" : ""}
-                    >
-                      {/* Icon for bot messages */}
+                    <div className={message.role === "assistant" ? "pl-4 pr-4 py-3" : ""}>
                       {message.role === "assistant" && IconComponent && (
                         <div className="flex items-center gap-2 mb-1">
-                          <IconComponent
-                            className={`w-4 h-4 ${styles?.iconColor}`}
-                          />
-                          <span
-                            className={`text-xs font-semibold uppercase tracking-wide ${styles?.iconColor}`}
-                          >
-                            {messageType === "success"
-                              ? "Confirmed"
-                              : messageType === "alert"
-                              ? "Alert"
-                              : "Info"}
-                          </span>
+                          <IconComponent className={`w-4 h-4 ${styles?.iconColor}`} />
+                          <span className={`text-xs font-semibold uppercase tracking-wide ${styles?.iconColor}`}>{messageType === "success" ? "Confirmed" : messageType === "alert" ? "Alert" : "Info"}</span>
                         </div>
                       )}
 
-                      <p className="whitespace-pre-wrap break-words leading-relaxed">
-                        {message.content}
-                      </p>
-
-                      <div
-                        className={`flex items-center gap-2 mt-2 text-xs ${
-                          message.role === "user"
-                            ? "text-blue-100"
-                            : "text-gray-400"
-                        }`}
-                      >
-                        <span>{formatTime(message.createdAt)}</span>
-                        {message.role === "assistant" && (
-                          <button
-                            onClick={() =>
-                              handleCopy(message.id, message.content)
-                            }
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-gray-200"
-                            title="Copy message"
-                          >
-                            {copiedId === message.id ? (
-                              <Check className="w-3.5 h-3.5 text-green-500" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1">
+                          <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+                          <div className={`flex items-center gap-2 mt-2 text-xs ${message.role === "user" ? "text-blue-100" : "text-gray-400"}`}>
+                            <span>{formatTime(message.createdAt)}</span>
+                            {message.role === "assistant" && (
+                              <button onClick={() => handleCopy(message.id, message.content)} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-gray-200" title="Copy message">
+                                {copiedId === message.id ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
                             )}
-                          </button>
+                          </div>
+                        </div>
+                        {message.role === "user" && (
+                          <div className="flex-shrink-0 ml-3 mt-1">
+                            <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold">{user?.name?.charAt(0) || 'U'}</div>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -631,25 +600,28 @@ export default function ChatBot() {
         {/* Input Area */}
         <div className="bg-white border-t border-gray-200 p-4 shadow-md">
           <div className="flex gap-3">
-            <input
+            <textarea
               id="question"
-              type="text"
-              placeholder="Ask about vehicles, drivers, maintenance..."
-              onKeyPress={(e) => {
-                if (e.key === "Enter" && !isProcessing) {
+              ref={(el) => (inputRef.current = el)}
+              value={questionInput}
+              onChange={(e) => setQuestionInput(e.target.value)}
+              placeholder="Ask about vehicles, drivers, maintenance... (Enter to send, Shift+Enter for newline)"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !isProcessing) {
+                  e.preventDefault();
                   sendMessage();
                 }
               }}
               disabled={!activeSession}
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
+              rows={1}
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all disabled:bg-gray-100 disabled:cursor-not-allowed resize-none"
             />
             <button
               onClick={sendMessage}
               disabled={isProcessing || !activeSession}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-lg hover:shadow-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed font-semibold flex items-center gap-2"
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-lg hover:shadow-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed font-semibold flex items-center gap-2"
             >
               <Send size={18} />
-              Send
             </button>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import MainLayout from '@/components/layout/MainLayout';
+// Layout provided by App's ProtectedRoute
 import { KpiCard } from '@/components/dashboard/KpiCard';
 import { TradeGroupStackedChart } from '@/components/dashboard/TradeGroupStackedChart';
 import { VehicleTypeStackedChart } from '@/components/dashboard/VehicleTypeStackedChart';
@@ -9,6 +9,7 @@ import { SpareVehiclesChart } from '@/components/dashboard/SpareVehiclesChart';
 import { LeaversVehiclesChart } from '@/components/dashboard/LeaversVehiclesChart';
 import { VehicleDataSheet } from '@/components/dashboard/VehicleDataSheet';
 import { Button } from '@/components/ui/button';
+import { API_ENDPOINTS } from '@/config/api';
 import { 
   Car, 
   CheckCircle, 
@@ -76,7 +77,8 @@ const FleetDashboard: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await axios.get('http://localhost:8000/api/dashboard/vehicle-summary');
+      const response = await axios.get(API_ENDPOINTS.VEHICLE_SUMMARY);
+      console.log('Vehicle summary response:', response.data);
       setSummary(response.data);
     } catch (err) {
       console.error('Failed to fetch vehicle summary:', err);
@@ -89,7 +91,7 @@ const FleetDashboard: React.FC = () => {
   const fetchAllVehicles = async (title: string, description: string) => {
     try {
       const response = await axios.get<VehiclesByStatusResponse>(
-        `http://localhost:8000/api/dashboard/vehicles-by-status/total`
+        API_ENDPOINTS.VEHICLES_BY_STATUS('total')
       );
 
       const convertedVehicles: VehicleRecord[] = response.data.vehicles.map((v: any) => ({
@@ -125,7 +127,7 @@ const FleetDashboard: React.FC = () => {
 
       const apiStatus = statusMap[status] || status;
       const response = await axios.get<VehiclesByStatusResponse>(
-        `http://localhost:8000/api/dashboard/vehicles-by-status/${apiStatus}`
+        API_ENDPOINTS.VEHICLES_BY_STATUS(apiStatus)
       );
 
       // Convert Salesforce vehicle format to VehicleRecord format
@@ -154,7 +156,7 @@ const FleetDashboard: React.FC = () => {
 
   const fetchMotDue = async (title: string, description: string) => {
     try {
-      const response = await axios.get(`http://localhost:8000/api/dashboard/vehicles-mot-due`);
+      const response = await axios.get(API_ENDPOINTS.VEHICLES_MOT_DUE);
       const convertedVehicles: VehicleRecord[] = response.data.vehicles.map((v: any) => ({
         id: v.Id,
         name: v.Name || '',
@@ -178,7 +180,7 @@ const FleetDashboard: React.FC = () => {
 
   const fetchServiceDue = async (title: string, description: string) => {
     try {
-      const response = await axios.get(`http://localhost:8000/api/dashboard/vehicles-service-due`);
+      const response = await axios.get(API_ENDPOINTS.VEHICLES_SERVICE_DUE);
       const convertedVehicles: VehicleRecord[] = response.data.vehicles.map((v: any) => ({
         id: v.Id,
         name: v.Name || '',
@@ -202,7 +204,7 @@ const FleetDashboard: React.FC = () => {
 
   const fetchTaxDue = async (title: string, description: string) => {
     try {
-      const response = await axios.get(`http://localhost:8000/api/dashboard/vehicles-tax-due`);
+      const response = await axios.get(API_ENDPOINTS.VEHICLES_TAX_DUE);
       const convertedVehicles: VehicleRecord[] = response.data.vehicles.map((v: any) => ({
         id: v.Id,
         name: v.Name || '',
@@ -225,10 +227,7 @@ const FleetDashboard: React.FC = () => {
   };
 
   return (
-    <MainLayout
-      title="Fleet Health & Status"
-      subtitle="Real-time overview of your vehicle fleet"
-    >
+    <>
       <div className="space-y-6">
         {/* Top Navigation Buttons */}
         <div className="flex justify-end gap-3">
@@ -360,7 +359,7 @@ const FleetDashboard: React.FC = () => {
         description={sheetData.description}
         vehicles={sheetVehicles}
       />
-    </MainLayout>
+    </>
   );
 };
 

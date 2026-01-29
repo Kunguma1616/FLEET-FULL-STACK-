@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -21,17 +21,31 @@ const queryClient = new QueryClient();
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    // Give session a moment to be set from OAuth callback
-    const timer = setTimeout(() => {
-      const sessionId = sessionStorage.getItem("user_session");
-      console.log("ProtectedRoute check - sessionId:", !!sessionId);
-      setIsAuthenticated(!!sessionId);
-      setLoading(false);
-    }, 100);
+    // Check for OAuth callback params FIRST (before auth check)
+    const params = new URLSearchParams(window.location.search);
+    const session = params.get("session");
+    const user = params.get("user");
+    const userEmail = params.get("email");
 
-    return () => clearTimeout(timer);
+    if (session && user && userEmail) {
+      console.log("✅ OAuth callback detected, saving session...");
+      sessionStorage.setItem("user_session", session);
+      sessionStorage.setItem("user_data", JSON.stringify({ name: user, email: userEmail }));
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setIsAuthenticated(true);
+      setLoading(false);
+      return;
+    }
+
+    // Then check if already authenticated
+    const sessionId = sessionStorage.getItem("user_session");
+    console.log("ProtectedRoute check - sessionId:", !!sessionId);
+    setIsAuthenticated(!!sessionId);
+    setLoading(false);
   }, []);
 
   if (loading) {

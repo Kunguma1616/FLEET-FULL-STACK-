@@ -18,8 +18,12 @@ class SalesforceService:
         security_token = os.getenv("SF_SECURITY_TOKEN")
         domain = os.getenv("SF_DOMAIN", "login")
 
-        if not all([username, password, security_token]):
-            raise ValueError("❌ Missing Salesforce credentials")
+        # Check if credentials are configured
+        if not all([username, password, security_token]) or "your_" in str(username):
+            print("⚠️  Salesforce credentials not configured. Using mock data mode.")
+            self.sf = None
+            self.mock_mode = True
+            return
 
         try:
             self.sf = Salesforce(
@@ -28,9 +32,12 @@ class SalesforceService:
                 security_token=security_token,
                 domain=domain,
             )
+            self.mock_mode = False
             print("✅ Connected to Salesforce")
         except Exception as e:
-            raise ConnectionError(f"❌ Failed to connect: {e}")
+            print(f"⚠️  Failed to connect to Salesforce: {e}. Using mock data mode.")
+            self.sf = None
+            self.mock_mode = True
 
     def execute_soql(self, query: str) -> list:
         """Execute SOQL query and return ALL results with proper pagination"""
@@ -117,8 +124,8 @@ class SalesforceService:
             where = f"(Vehicle__r.Name = '{vehicle_identifier}' OR Vehicle__r.Reg_No__c = '{vehicle_identifier}' OR Vehicle__r.Van_Number__c = '{vehicle_identifier}')"
         else:
             where = "End_date__c = null"
-
-        query = f"""
+        # Primary (rich) query - may include related Email fields which aren't always present
+        query_full = f"""
             SELECT 
                 Id, 
                 Vehicle__r.Name, 
@@ -135,7 +142,30 @@ class SalesforceService:
             WHERE {where}
             ORDER BY Start_date__c DESC
         """
-        results = self.execute_soql(query)
+
+        results = self.execute_soql(query_full)
+
+        # If no results returned, it may be due to invalid nested fields (e.g. Email not present on related object).
+        # Retry with a safer query that omits nested Email fields.
+        if not results:
+            print("⚠️ Allocations full query returned no records — retrying with safe query without nested Email fields")
+            query_safe = f"""
+                SELECT 
+                    Id, 
+                    Vehicle__r.Name, 
+                    Vehicle__r.Reg_No__c,
+                    Vehicle__r.Van_Number__c,
+                    Service_Resource__r.Name, 
+                    Internal_Staff__r.Name, 
+                    Start_date__c, 
+                    End_date__c,
+                    Reserved_For__c
+                FROM Vehicle_Allocation__c
+                WHERE {where}
+                ORDER BY Start_date__c DESC
+            """
+            results = self.execute_soql(query_safe)
+
         print(f"📊 Allocations query returned {len(results)} records")
         return results
 

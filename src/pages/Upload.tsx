@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,6 +49,8 @@ export default function Upload() {
   const navigate = useNavigate();
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [vanNumber, setVanNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [vehicleData, setVehicleData] = useState<VehicleData | null>(null);
@@ -66,6 +68,35 @@ export default function Upload() {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const openFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => setPreviewUrl(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
   };
 
   const handleSearchVehicle = async () => {
@@ -233,35 +264,57 @@ export default function Upload() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {previewUrl ? (
-                  <div className="relative">
-                    <img
-                      src={previewUrl}
-                      alt="Vehicle preview"
-                      className="w-full h-64 object-cover rounded-lg border-2 border-gray-200"
-                    />
-                    <button
-                      onClick={() => {
-                        setPreviewUrl('');
-                        setImageFile(null);
-                      }}
-                      className="absolute top-2 right-2 bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
-                    >
-                      Remove
-                    </button>
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+
+                  <div
+                    onClick={openFilePicker}
+                    onDrop={handleDrop}
+                    onDragOver={handleDragOver}
+                    onDragEnter={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    role="button"
+                    tabIndex={0}
+                    className={`w-full h-64 rounded-lg border-2 flex items-center justify-center cursor-pointer transition p-4 ${
+                      dragActive ? 'border-blue-400 bg-blue-50' : 'border-dashed border-gray-300 bg-white'
+                    }`}
+                  >
+                    {previewUrl ? (
+                      <div className="relative w-full h-full">
+                        <img
+                          src={previewUrl}
+                          alt="Vehicle preview"
+                          className="w-full h-full object-cover rounded-lg"
+                        />
+                        <div className="absolute top-2 right-2 flex gap-2">
+                          <button
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              setPreviewUrl('');
+                              setImageFile(null);
+                            }}
+                            className="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center text-gray-500">
+                        <UploadIcon size={36} className="mx-auto mb-3" />
+                        <p className="font-semibold">Drag & drop an image here</p>
+                        <p className="text-sm mt-1">or click to browse files</p>
+                        <p className="text-xs text-gray-400 mt-2">PNG, JPG, GIF — max 10MB</p>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <label className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageSelect}
-                      className="hidden"
-                    />
-                    <UploadIcon size={32} className="mx-auto text-gray-400 mb-2" />
-                    <p className="text-sm text-gray-600">Click to upload vehicle image</p>
-                  </label>
-                )}
+                </div>
               </div>
             </CardContent>
           </Card>

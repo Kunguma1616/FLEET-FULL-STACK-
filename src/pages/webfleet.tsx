@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import MainLayout from '@/components/layout/MainLayout';
+// Layout provided by App's ProtectedRoute
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Trophy, TrendingUp, AlertCircle, CheckCircle, Users, Award } from 'lucide-react';
+import { API_ENDPOINTS } from '@/config/api';
 
 interface Engineer {
   rank: number;
@@ -65,7 +66,7 @@ export const Webfleet: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      const response = await axios.get('http://localhost:8000/api/drivers/excel');
+      const response = await axios.get(API_ENDPOINTS.DRIVERS_EXCEL);
       
       // Double filtering - frontend protection!
       const cleanDrivers = response.data.drivers
@@ -128,10 +129,7 @@ export const Webfleet: React.FC = () => {
   };
 
   return (
-    <MainLayout
-      title="🚗 Fleet Performance Dashboard"
-      subtitle="Real-time driving scores and performance analytics"
-    >
+    <>
       <div className="space-y-6">
         {/* Top Statistics */}
         {stats && (
@@ -341,7 +339,7 @@ export const Webfleet: React.FC = () => {
           </div>
         </Card>
       </div>
-    </MainLayout>
+    </>
   );
 };
 

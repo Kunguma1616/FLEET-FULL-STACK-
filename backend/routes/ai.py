@@ -6,6 +6,35 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
+try:
+    from groq_service import GroqService
+    from salesforce_service import SalesforceService
+    from webfleet_api import WebfleetService
+
+    groq_svc = None
+    try:
+        groq_svc = GroqService()
+    except Exception as e:
+        print(f"⚠️ GroqService not initialized: {e}")
+
+    # Attach platform services if available
+    try:
+        sf = SalesforceService()
+        if groq_svc:
+            groq_svc.set_salesforce_service(sf)
+    except Exception as e:
+        print(f"⚠️ SalesforceService init failed: {e}")
+
+    try:
+        wf = WebfleetService()
+        if groq_svc:
+            groq_svc.set_webfleet_service(wf)
+    except Exception as e:
+        print(f"⚠️ WebfleetService init failed: {e}")
+
+except Exception as e:
+    print(f"⚠️ Chat/AI integrations not available: {e}")
+
 @router.post("/extract-vehicle-details")
 async def extract_vehicle_details(
     image: UploadFile = File(...),
@@ -99,6 +128,26 @@ Format your response as a structured analysis with clear sections."""
     except Exception as e:
         print(f"⚠️ AI analysis failed: {e}")
         return generate_template_analysis(van_number)
+
+
+@router.post("/chat")
+async def chat_endpoint(payload: dict):
+    """Simple chat endpoint that forwards messages to the GroqService if available."""
+    message = payload.get('message') or payload.get('text')
+    style = payload.get('style', 'plain')
+    if not message:
+        raise HTTPException(status_code=400, detail="Missing 'message' in request body")
+
+    if 'groq_svc' not in globals() or groq_svc is None:
+        raise HTTPException(status_code=503, detail="AI chat service not available on this server")
+
+    try:
+        # Use the chat entrypoint (synchronous)
+        response = groq_svc.chat(message, style=style)
+        return {"status": "success", "response": response}
+    except Exception as e:
+        print(f"❌ Chat processing error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def generate_template_analysis(van_number: str) -> str:

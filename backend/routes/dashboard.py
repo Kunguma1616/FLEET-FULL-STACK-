@@ -324,14 +324,16 @@ def get_vehicles_by_status(status: str):
             "reserved": ["Reserved"],
             "written_off": ["Written Off"],
             "sold": ["Sold"],
+            "total": [],  # Empty = return ALL vehicles
+            "current": [],  # Empty = return ALL vehicles
         }
 
-        # 'current' -> return all vehicles (no status filter)
+        # 'current' or 'total' -> return all vehicles (no status filter)
         key = status.lower()
         sf_values = status_map.get(key)
         
         # Build query based on status
-        if key == 'current':
+        if key == 'current' or key == 'total' or (sf_values is not None and len(sf_values) == 0):
             where_clause = ""
             sf_status = 'ALL'
         elif sf_values and len(sf_values) > 1:

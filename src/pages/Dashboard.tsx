@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { MessageCircle, Trophy, Upload, BarChart3, LogOut } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { API_ENDPOINTS } from '@/config/api';
 
 interface DashboardStats {
   total: number;
@@ -42,7 +43,7 @@ const Dashboard: React.FC = () => {
 
   const fetchVehicleSummary = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/dashboard/vehicle-summary');
+      const response = await axios.get(API_ENDPOINTS.VEHICLE_SUMMARY);
       setStats(response.data);
     } catch (err) {
       console.error('Failed to fetch vehicle summary:', err);

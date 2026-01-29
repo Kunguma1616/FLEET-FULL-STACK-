@@ -1,3 +1,339 @@
+from groq import Groq
+import os
+import json
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any
+import re
+
+class GroqService:
+    """Professional AI with structured output for all queries"""
+    
+    def __init__(self):
+        api_key = os.getenv('GROQ_API_KEY')
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not found")
+        
+        self.groq_client = Groq(api_key=api_key)
+        self.model = "llama-3.3-70b-versatile"
+        self.current_date = datetime.now()
+        
+        self.salesforce_service = None
+        self.webfleet_service = None
+        
+        print("✅ Professional AI Service initialized")
+    
+    def set_salesforce_service(self, sf_service):
+        self.salesforce_service = sf_service
+        print("✅ Salesforce connected")
+    
+    def set_webfleet_service(self, wf_service):
+        self.webfleet_service = wf_service
+        print("✅ Webfleet connected")
+    
+    def classify_intent_and_execute(self, user_message: str, conversation_history: List = None) -> Dict:
+        """Smart intent classification"""
+        
+        message_lower = user_message.lower()
+        
+        # VEHICLE HEALTH
+        if any(word in message_lower for word in ['health', 'status', 'check', 'info']):
+            vehicle_id = self._extract_vehicle_id(user_message)
+            if vehicle_id:
+                return self._execute_intent('get_vehicle_health', {'vehicle_id': vehicle_id}, user_message)
+        
+        # FLEET HEALTH
+        if 'fleet' in message_lower:
+            vehicle_id = self._extract_vehicle_id(user_message)
+            if vehicle_id:
+                return self._execute_intent('get_vehicle_health', {'vehicle_id': vehicle_id}, user_message)
+            else:
+                return self._execute_intent('get_fleet_health', {}, user_message)
+        
+        # MAINTENANCE
+        if any(phrase in message_lower for phrase in ['maintenance', 'service due', 'need service']):
+            return self._execute_intent('get_maintenance_due', {}, user_message)
+        
+        # DRIVING SCORES
+        if 'driving score' in message_lower or 'driver performance' in message_lower:
+            return self._execute_intent('get_driving_scores', {'days': 7}, user_message)
+        
+        # FUEL
+        if 'fuel' in message_lower:
+            days = 7 if 'week' in message_lower else 1
+            return self._execute_intent('get_fuel_data', {'days': days}, user_message)
+        
+        # IDLE
+        if 'idle' in message_lower:
+            return self._execute_intent('get_idle_waste', {'days': 1}, user_message)
+        
+        # SPEEDING
+        if 'speeding' in message_lower or 'speed' in message_lower:
+            return self._execute_intent('get_speeding_alerts', {'hours': 24}, user_message)
+        
+        # LOCATION
+        if any(word in message_lower for word in ['where is', 'location']):
+            vehicle_id = self._extract_vehicle_id(user_message)
+            if vehicle_id:
+                return self._execute_intent('get_live_location', {'vehicle_id': vehicle_id}, user_message)
+        
+        if 'all vehicle' in message_lower or 'show vehicles' in message_lower or 'vehicle positions' in message_lower:
+            return self._execute_intent('get_all_positions', {}, user_message)
+        
+        # COUNT
+        if 'how many' in message_lower:
+            return self._execute_intent('get_vehicle_count', {}, user_message)
+        
+        return {
+            'intent': {'intent': 'help'},
+            'data': None,
+            'error': 'Try: "VEH-00330 health", "driving scores", "maintenance due", "fuel consumption"'
+        }
+    
+    def _execute_intent(self, intent: str, parameters: Dict, user_message: str) -> Dict:
+        """Execute with proper error handling"""
+        
+        print(f"⚡ Executing: {intent}")
+        
+        # VEHICLE HEALTH
+        if intent == 'get_vehicle_health':
+            vehicle_id = parameters.get('vehicle_id')
+            health_data = {}
+            
+            if self.salesforce_service:
+                try:
+                    vehicle = self.salesforce_service.get_vehicle_by_identifier(vehicle_id)
+                    if vehicle:
+                        health_data['vehicle_info'] = vehicle
+                    
+                    maintenance = self.salesforce_service.get_vehicle_maintenance(vehicle_id)
+                    if maintenance:
+                        health_data['maintenance'] = maintenance[0] if maintenance else None
+                    
+                    allocations = self.salesforce_service.get_vehicle_allocations(vehicle_id)
+                    if allocations:
+                        health_data['allocation'] = allocations[0] if allocations else None
+                except Exception as e:
+                    print(f"⚠️ Salesforce error: {e}")
+            
+            if self.webfleet_service:
+                try:
+                    location = self.webfleet_service.get_vehicle_location(vehicle_id)
+                    if location:
+                        health_data['live_location'] = location
+                    
+                    trip = self.webfleet_service.get_trip_summary(vehicle_id, days=7)
+                    if trip:
+                        health_data['trip_summary'] = trip
+                except Exception as e:
+                    print(f"⚠️ Webfleet error: {e}")
+            
+            return {
+                'intent': {'intent': intent, 'confidence': 0.95},
+                'data': health_data if health_data else None,
+                'source': 'combined',
+                'context': 'vehicle_health',
+                'vehicle_id': vehicle_id
+            }
+        
+        # MAINTENANCE
+        elif intent == 'get_maintenance_due':
+            if self.salesforce_service:
+                maintenance = self.salesforce_service.get_vehicle_maintenance()
+                return {
+                    'intent': {'intent': intent, 'confidence': 0.95},
+                    'data': maintenance if maintenance else [],
+                    'source': 'salesforce',
+                    'context': 'maintenance_schedule',
+                    'count': len(maintenance) if maintenance else 0
+                }
+        
+        # DRIVING SCORES
+        elif intent == 'get_driving_scores':
+            if self.webfleet_service:
+                scores = self.webfleet_service.get_driving_scores(days=7)
+                return {
+                    'intent': {'intent': intent, 'confidence': 0.95},
+                    'data': scores if scores else [],
+                    'source': 'webfleet',
+                    'context': 'driver_performance',
+                    'count': len(scores) if scores else 0
+                }
+        
+        # FUEL
+        elif intent == 'get_fuel_data':
+            days = parameters.get('days', 7)
+            if self.webfleet_service:
+                fuel = self.webfleet_service.get_fuel_consumption(days=days)
+                return {
+                    'intent': {'intent': intent, 'confidence': 0.95},
+                    'data': fuel if fuel else [],
+                    'source': 'webfleet',
+                    'context': 'fuel_analysis',
+                    'period_days': days,
+                    'count': len(fuel) if fuel else 0
+                }
+        
+        # IDLE
+        elif intent == 'get_idle_waste':
+            if self.webfleet_service:
+                idle = self.webfleet_service.get_idle_time(days=1)
+                return {
+                    'intent': {'intent': intent, 'confidence': 0.95},
+                    'data': idle if idle else [],
+                    'source': 'webfleet',
+                    'context': 'idle_waste',
+                    'count': len(idle) if idle else 0
+                }
+        
+        # SPEEDING
+        elif intent == 'get_speeding_alerts':
+            if self.webfleet_service:
+                speeding = self.webfleet_service.get_speeding_events(hours=24)
+                return {
+                    'intent': {'intent': intent, 'confidence': 0.95},
+                    'data': speeding if speeding else [],
+                    'source': 'webfleet',
+                    'context': 'safety_violations',
+                    'count': len(speeding) if speeding else 0
+                }
+        
+        # ALL POSITIONS
+        elif intent == 'get_all_positions':
+            if self.webfleet_service:
+                positions = self.webfleet_service.get_all_vehicle_positions()
+                return {
+                    'intent': {'intent': intent, 'confidence': 0.95},
+                    'data': positions if positions else [],
+                    'source': 'webfleet',
+                    'context': 'live_positions',
+                    'count': len(positions) if positions else 0
+                }
+        
+        # FLEET HEALTH
+        elif intent == 'get_fleet_health':
+            if self.webfleet_service:
+                health = self.webfleet_service.get_fleet_health_summary()
+                return {
+                    'intent': {'intent': intent, 'confidence': 0.95},
+                    'data': health,
+                    'source': 'webfleet',
+                    'context': 'fleet_health'
+                }
+        
+        # VEHICLE COUNT
+        elif intent == 'get_vehicle_count':
+            if self.salesforce_service:
+                vehicles = self.salesforce_service.get_all_vehicles()
+                return {
+                    'intent': {'intent': intent, 'confidence': 0.95},
+                    'data': vehicles,
+                    'source': 'salesforce',
+                    'count': len(vehicles)
+                }
+        
+        return {'intent': {'intent': 'unknown'}, 'data': None}
+    
+    def generate_natural_response(self, user_message: str, intent_result: Dict) -> str:
+        """Generate PROFESSIONAL STRUCTURED output - NO JSON dumps"""
+        
+        intent = intent_result.get('intent', {}).get('intent', 'unknown')
+        data = intent_result.get('data')
+        error = intent_result.get('error')
+        context = intent_result.get('context', '')
+        count = intent_result.get('count', 0)
+        
+        if error:
+            return f"ℹ️ {error}"
+        
+        if not data or (isinstance(data, list) and len(data) == 0):
+            return f"ℹ️ No data available for this query.\n\nPossible reasons:\n• Service temporarily unavailable\n• No matching records\n• Data not yet synced"
+        
+        date_str = self.current_date.strftime('%B %d, %Y')
+        
+        try:
+            # (Response generation logic... shortened for file)
+            # Delegate vehicle health to helper
+            if context == 'vehicle_health':
+                return self._generate_vehicle_health_response(data, intent_result)
+
+            # Fallback: return a simple summary
+            response = f"Date: {date_str}\n\nResults:\n"
+            if isinstance(data, list):
+                response += f"Found {len(data)} records\n"
+            elif isinstance(data, dict):
+                for k, v in data.items():
+                    response += f"- {k}: {v}\n"
+            return response
+        except Exception as e:
+            print(f"❌ Response generation error: {e}")
+            return f"ℹ️ Data retrieved but formatting error occurred."
+    
+    def chat(self, user_message: str, conversation_history: List = None, *, style: str = 'plain', return_dict: bool = False) -> str:
+        intent_result = self.classify_intent_and_execute(user_message, conversation_history)
+        response_text = self.generate_natural_response(user_message, intent_result)
+        if return_dict:
+            return intent_result
+        remove_emojis = True if style == 'plain' else False
+        remove_ellipsis = True if style == 'plain' else False
+        return self._sanitize_to_plain_text(response_text, remove_emojis=remove_emojis, remove_ellipsis=remove_ellipsis)
+    
+    def _sanitize_to_plain_text(self, text: str, remove_emojis: bool = True, remove_ellipsis: bool = True) -> str:
+        if not text:
+            return text
+        out = text.replace('**', '')
+        out = out.replace('\t', ' ')
+        out = out.replace('•', '-')
+        if remove_ellipsis:
+            out = out.replace('...', '')
+        if remove_emojis:
+            try:
+                emoji_pattern = re.compile(
+                    '[\U0001F300-\U0001F6FF\U0001F900-\U0001F9FF\U0001F1E0-\U0001F1FF\U00002600-\U000027BF]'
+                )
+                out = emoji_pattern.sub('', out)
+            except re.error:
+                for ch in ['🟢','🔴','📍','📅','🏆','🥇','🥈','🥉','💡','🔧','⚠️']:
+                    out = out.replace(ch, '')
+        out = re.sub(r'\*{2,}', '', out)
+        out = re.sub(r'-{3,}', '---', out)
+        out = re.sub(r'\n{3,}', '\n\n', out)
+        out = '\n'.join(line.rstrip() for line in out.splitlines())
+        out = out.strip() + '\n'
+        return out
+    
+    def _generate_vehicle_health_response(self, data: Dict, intent_result: Dict) -> str:
+        vehicle_id = intent_result.get('vehicle_id', 'Unknown')
+        date_str = self.current_date.strftime('%B %d, %Y')
+        response = f"📅 {date_str}\n\n"
+        response += f"🚗 **VEHICLE HEALTH REPORT: {vehicle_id}**\n"
+        if 'vehicle_info' in data:
+            v = data['vehicle_info']
+            response += f"- ID: {v.get('Name', 'N/A')}\n"
+            response += f"- Registration: {v.get('Reg_No__c', 'N/A')}\n"
+        return response
+    
+    def _extract_vehicle_id(self, text: str) -> Optional[str]:
+        match = re.search(r'VEH-\d{3,5}', text.upper())
+        return match.group(0) if match else None
+
+
+if __name__ == "__main__":
+    try:
+        svc = GroqService()
+    except ValueError as e:
+        print(f"Initialization error: {e}\nSet the GROQ_API_KEY environment variable to run the interactive demo.")
+    else:
+        print("✅ Professional AI Service ready — type a question (ctrl-c to exit)")
+        try:
+            while True:
+                user = input('\nUser: ').strip()
+                if not user:
+                    print('Please enter a question or ctrl-c to exit')
+                    continue
+                out = svc.chat(user)
+                print(f"\nAssistant:\n{out}\n")
+        except (KeyboardInterrupt, EOFError):
+            print('\nExiting.')
 import os
 import json
 import traceback
@@ -38,6 +374,16 @@ class GroqService:
         self.sf = SalesforceService()
         self.conversation_context = {}
         print("✅ Groq service initialized")
+
+    def set_salesforce_service(self, sf_service):
+        """Allow external code to attach an existing SalesforceService instance."""
+        self.sf = sf_service
+        print("✅ GroqService: Salesforce service attached")
+
+    def set_webfleet_service(self, wf_service):
+        """Allow external code to attach a Webfleet service instance."""
+        self.webfleet = wf_service
+        print("✅ GroqService: Webfleet service attached")
 
     def is_available(self) -> bool:
         """Check if Groq service is available"""

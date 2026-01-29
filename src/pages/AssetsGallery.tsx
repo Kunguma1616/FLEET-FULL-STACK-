@@ -179,12 +179,20 @@ export default function AssetsGallery() {
                 className="hover:shadow-lg transition-shadow cursor-pointer overflow-hidden"
                 onClick={() => setExpandedAsset(expandedAsset === asset.id ? null : asset.id)}
               >
-                {/* Placeholder Vehicle Image */}
-                <div className="bg-gradient-to-br from-blue-200 to-indigo-200 h-48 flex items-center justify-center">
-                  <div className="text-center">
-                    <UploadIcon size={48} className="mx-auto text-blue-600 mb-2 opacity-50" />
-                    <p className="text-blue-700 font-semibold">Van {asset.van_number}</p>
-                  </div>
+                {/* Vehicle Image (use provided image if available in public/assets) */}
+                <div className="h-48 w-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                  <img
+                    src="/aspect-van.jpg"
+                    alt={`Van ${asset.van_number}`}
+                    onError={(e) => {
+                      // Fallback to icon/gradient if image not found
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                      const parent = target.parentElement;
+                      if (parent) parent.className = 'bg-gradient-to-br from-blue-200 to-indigo-200 h-48 flex items-center justify-center w-full';
+                    }}
+                    className="object-cover w-full h-48"
+                  />
                 </div>
 
                 <CardHeader>
